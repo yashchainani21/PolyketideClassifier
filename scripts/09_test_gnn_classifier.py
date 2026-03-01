@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
 """
-Evaluate Supervised GNN Classifier on OOD PKS Eval Set
+Test Supervised GNN Classifier vs ECFP4 Baseline
 
-Loads held-out PKS molecules (from extender codes not seen during training) and
-measures recall for both the supervised GNN (direct inference) and an ECFP4
-logistic regression baseline.
+Loads a trained SupervisedGNNClassifier checkpoint, runs direct inference on
+the test set, and compares against an ECFP4 logistic regression baseline.
 
-All eval molecules are true PKS (label=1), so the key metric is recall: what
-fraction does each method correctly identify as PKS?
+Unlike the SupCon pipeline (which requires embedding extraction + linear probe),
+the supervised GNN makes predictions directly via sigmoid(logit).
 
 Prerequisites:
-    - Run scripts/07_train_gnn_classifier.py to produce:
+    - Run scripts/08_train_gnn_classifier.py to produce:
         models/supervised_gnn/best_model.pt
-    - Run scripts/04_generate_extender_ood_eval_set.py to produce:
-        data/processed/eval_pks_products_*_SMILES.txt
 
 Usage:
-    python scripts/09_evaluate_ood_recall.py
-    python scripts/09_evaluate_ood_recall.py --checkpoint models/supervised_gnn/checkpoint_epoch_020.pt
-    python scripts/09_evaluate_ood_recall.py --max_ecfp4_samples 0  # use full training set
+    python scripts/09_test_gnn_classifier.py
+    python scripts/09_test_gnn_classifier.py --checkpoint models/supervised_gnn/checkpoint_epoch_020.pt
 """
 
 import argparse
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
@@ -33,9 +28,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, average_precision_score, f1_score, roc_auc_score
 from torch.utils.data import DataLoader, Dataset
 
-from rdkit import Chem, RDLogger
+from rdkit import Chem
+from rdkit import RDLogger
 from rdkit.Chem import AllChem, rdchem
 
 RDLogger.DisableLog("rdApp.*")
@@ -47,7 +45,7 @@ RDLogger.DisableLog("rdApp.*")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate Supervised GNN on OOD PKS Eval Set",
+        description="Test Supervised GNN Classifier vs ECFP4 Baseline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -55,22 +53,15 @@ def parse_args() -> argparse.Namespace:
         help="Path to supervised GNN checkpoint"
     )
     parser.add_argument(
-        "--eval_smiles", type=str,
-        default="data/processed/eval_pks_products_1_ext_no_stereo_butmal_hexmal_isobutmal_d-isobutmal_dcp_SMILES.txt",
-        help="Path to OOD eval SMILES file (all PKS, label=1)"
-    )
-    parser.add_argument(
         "--data_dir", type=str, default="data/",
-        help="Path to data directory (for training ECFP4 probe)"
+        help="Path to data directory containing train/test subdirs"
     )
     parser.add_argument(
-        "--max_ecfp4_samples", type=int, default=50000,
-        help="Max training samples for ECFP4 probe (0 = use all)"
-    )
-    parser.add_argument(
-        "--output_json", type=str, default="models/supervised_gnn/ood_eval_comparison.json",
+        "--output_path", type=str, default="models/supervised_gnn/test_comparison.json",
         help="Path for saving comparison JSON"
     )
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size for inference")
+    parser.add_argument("--num_workers", type=int, default=4, help="DataLoader workers")
     return parser.parse_args()
 
 
@@ -176,6 +167,73 @@ def smiles_to_ecfp4(smiles: str, nbits: int = 2048) -> np.ndarray:
         return np.zeros(nbits, dtype=np.float32)
     fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=nbits)
     return np.array(fp, dtype=np.float32)
+
+
+# =============================================================================
+# Dataset and DataLoader
+# =============================================================================
+
+@dataclass
+class GraphSample:
+    node_feat: np.ndarray
+    edge_index: np.ndarray
+    edge_attr: np.ndarray
+    label: int
+
+
+class MolecularGraphDataset(Dataset):
+    def __init__(self, parquet_path: str):
+        df = pd.read_parquet(parquet_path)
+        self.smiles = df["smiles"].astype(str).tolist()
+        self.labels = df["label"].to_numpy().astype(np.int64)
+
+        for smi in self.smiles:
+            try:
+                nf, _, ea = smiles_to_graph(smi)
+                self.node_feat_dim = nf.shape[1]
+                self.edge_feat_dim = ea.shape[1]
+                break
+            except ValueError:
+                continue
+        else:
+            raise RuntimeError("No valid molecules found")
+
+    def __len__(self) -> int:
+        return len(self.smiles)
+
+    def __getitem__(self, idx: int) -> GraphSample:
+        nf, ei, ea = smiles_to_graph(self.smiles[idx])
+        return GraphSample(nf, ei, ea, int(self.labels[idx]))
+
+
+def collate_graphs(batch: List[GraphSample]) -> Dict[str, torch.Tensor]:
+    node_feats = []
+    edge_indices = []
+    edge_attrs = []
+    batch_index = []
+    labels = []
+    offset = 0
+
+    for graph in batch:
+        x = torch.from_numpy(graph.node_feat)
+        ei = torch.from_numpy(graph.edge_index) + offset
+        ea = torch.from_numpy(graph.edge_attr)
+        n = x.size(0)
+
+        node_feats.append(x)
+        edge_indices.append(ei)
+        edge_attrs.append(ea)
+        batch_index.append(torch.full((n,), len(labels), dtype=torch.long))
+        labels.append(graph.label)
+        offset += n
+
+    return {
+        "node_feat": torch.cat(node_feats, dim=0),
+        "edge_index": torch.cat(edge_indices, dim=1),
+        "edge_attr": torch.cat(edge_attrs, dim=0),
+        "batch": torch.cat(batch_index, dim=0),
+        "labels": torch.tensor(labels, dtype=torch.long),
+    }
 
 
 # =============================================================================
@@ -303,10 +361,14 @@ def load_model_from_checkpoint(
     checkpoint_path: str,
     device: torch.device,
 ) -> SupervisedGNNClassifier:
-    """Load SupervisedGNNClassifier from a training checkpoint."""
+    """Load SupervisedGNNClassifier from a training checkpoint.
+
+    Infers architecture from saved args or from state_dict keys.
+    """
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model_state = checkpoint["model_state_dict"]
 
+    # Prefer saved args if available
     if "args" in checkpoint:
         saved_args = checkpoint["args"]
         node_dim = model_state["input_proj.weight"].shape[1]
@@ -320,6 +382,7 @@ def load_model_from_checkpoint(
             dropout=saved_args["dropout"],
         )
     else:
+        # Infer from state_dict
         hidden_dim = model_state["input_proj.weight"].shape[0]
         node_dim = model_state["input_proj.weight"].shape[1]
         edge_dim = model_state["gat_layers.0.edge_proj.weight"].shape[1]
@@ -345,61 +408,71 @@ def load_model_from_checkpoint(
 
 
 # =============================================================================
-# GNN Direct Inference on OOD SMILES
+# GNN Inference
 # =============================================================================
 
 @torch.no_grad()
-def get_gnn_predictions(
+def run_gnn_inference(
     model: SupervisedGNNClassifier,
-    smiles_list: List[str],
+    loader: DataLoader,
     device: torch.device,
-) -> Tuple[np.ndarray, List[str]]:
-    """Run direct GNN inference on a list of SMILES.
-
-    Returns:
-        probs: [N_valid] array of P(PKS) from sigmoid(logit)
-        failed: list of SMILES that could not be parsed
-    """
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Run direct GNN inference. Returns (probs, labels)."""
     model.eval()
-    probs = []
-    failed = []
+    all_probs = []
+    all_labels = []
 
-    for smi in smiles_list:
-        try:
-            node_feat, edge_index, edge_attr = smiles_to_graph(smi)
-        except ValueError:
-            failed.append(smi)
-            continue
+    for batch in loader:
+        node_feat = batch["node_feat"].to(device)
+        edge_index = batch["edge_index"].to(device)
+        edge_attr = batch["edge_attr"].to(device)
+        batch_idx = batch["batch"].to(device)
 
-        node_feat_t = torch.from_numpy(node_feat).to(device)
-        edge_index_t = torch.from_numpy(edge_index).to(device)
-        edge_attr_t = torch.from_numpy(edge_attr).to(device)
-        batch_t = torch.zeros(node_feat.shape[0], dtype=torch.long, device=device)
+        logits, _ = model(node_feat, edge_index, batch_idx, edge_attr)
+        probs = torch.sigmoid(logits).squeeze(1)
 
-        logit, _ = model(node_feat_t, edge_index_t, batch_t, edge_attr_t)
-        prob = torch.sigmoid(logit).cpu().numpy().item()
-        probs.append(prob)
+        all_probs.append(probs.cpu().numpy())
+        all_labels.append(batch["labels"].numpy())
 
-    return np.array(probs), failed
+    return np.concatenate(all_probs), np.concatenate(all_labels)
 
 
 # =============================================================================
-# ECFP4 Fingerprint Extraction
+# Evaluation
 # =============================================================================
 
-def get_ecfp4_fingerprints(smiles_list: List[str]) -> Tuple[np.ndarray, List[str]]:
-    """Compute ECFP4 fingerprints for a list of SMILES."""
-    fingerprints = []
-    failed = []
+def compute_metrics(labels: np.ndarray, probs: np.ndarray) -> Dict[str, float]:
+    """Compute classification metrics from probabilities."""
+    preds = (probs >= 0.5).astype(int)
+    return {
+        "accuracy": float(accuracy_score(labels, preds)),
+        "auprc": float(average_precision_score(labels, probs)),
+        "auroc": float(roc_auc_score(labels, probs)),
+        "f1": float(f1_score(labels, preds)),
+    }
 
-    for smi in smiles_list:
-        fp = smiles_to_ecfp4(smi)
-        if fp.sum() == 0 and Chem.MolFromSmiles(smi) is None:
-            failed.append(smi)
-        else:
-            fingerprints.append(fp)
 
-    return np.vstack(fingerprints), failed
+def print_comparison_table(
+    gnn_metrics: Dict[str, float],
+    ecfp4_metrics: Dict[str, float],
+) -> None:
+    metric_names = ["accuracy", "auprc", "auroc", "f1"]
+    labels = ["Accuracy", "AUPRC", "AUROC", "F1"]
+
+    print("\n" + "=" * 72)
+    print("Test Set Comparison: Supervised GNN (direct) vs ECFP4 Probe")
+    print("=" * 72)
+    print(f"{'Metric':<12} {'GNN':>12} {'ECFP4':>12} {'Delta':>12}")
+    print("-" * 72)
+
+    for label, key in zip(labels, metric_names):
+        gnn_val = gnn_metrics[key]
+        ecfp4_val = ecfp4_metrics[key]
+        delta = gnn_val - ecfp4_val
+        sign = "+" if delta >= 0 else ""
+        print(f"{label:<12} {gnn_val:>12.4f} {ecfp4_val:>12.4f} {sign}{delta:>11.4f}")
+
+    print("=" * 72)
 
 
 # =============================================================================
@@ -408,123 +481,77 @@ def get_ecfp4_fingerprints(smiles_list: List[str]) -> Tuple[np.ndarray, List[str
 
 def main():
     args = parse_args()
-
-    print("OOD Eval: Supervised GNN (direct) vs ECFP4 Probe")
-    print("=" * 72)
-
-    # --- Load eval SMILES ---
-    eval_path = Path(args.eval_smiles)
-    if not eval_path.exists():
-        print(f"Error: Eval SMILES file not found at {args.eval_smiles}")
-        print("Run scripts/04_generate_extender_ood_eval_set.py first.")
-        sys.exit(1)
-
-    smiles_list = [line.strip() for line in eval_path.read_text().splitlines() if line.strip()]
-    print(f"\nLoaded {len(smiles_list)} OOD PKS molecules (all label=1)")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
 
-    # --- GNN direct inference ---
-    print(f"\n--- Supervised GNN (direct inference) ---")
-    if not Path(args.checkpoint).exists():
-        print(f"Error: Checkpoint not found at {args.checkpoint}")
-        sys.exit(1)
+    print("Supervised GNN Classifier — Test Set Evaluation")
+    print("=" * 72)
+    print(f"  Device: {device}")
+    print(f"  Checkpoint: {args.checkpoint}")
 
-    print(f"Loading checkpoint from {args.checkpoint}...")
+    # --- Load GNN model ---
+    print(f"\nLoading supervised GNN from {args.checkpoint}...")
     model = load_model_from_checkpoint(args.checkpoint, device)
 
-    print("Running inference on OOD molecules...")
-    gnn_probs, gnn_failed = get_gnn_predictions(model, smiles_list, device)
-    if gnn_failed:
-        print(f"  WARNING: {len(gnn_failed)} SMILES failed graph conversion")
-    print(f"  Predictions: {len(gnn_probs)}")
+    # --- Load test data ---
+    data_dir = Path(args.data_dir)
+    test_path = data_dir / "test" / "supcon_test.parquet"
+    print(f"\nLoading test data from {test_path}...")
+    test_ds = MolecularGraphDataset(str(test_path))
+    print(f"  Test samples: {len(test_ds)}, PKS ratio: {test_ds.labels.mean():.3f}")
 
-    # --- ECFP4 baseline (train from scratch) ---
-    print("\n--- ECFP4 Fingerprint Probe ---")
-    train_path = Path(args.data_dir) / "train" / "supcon_train.parquet"
+    test_loader = DataLoader(
+        test_ds,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=collate_graphs,
+        num_workers=args.num_workers,
+    )
+
+    # --- GNN direct inference ---
+    print("\nRunning GNN inference on test set...")
+    gnn_probs, test_labels = run_gnn_inference(model, test_loader, device)
+    gnn_metrics = compute_metrics(test_labels, gnn_probs)
+    print(f"  GNN AUPRC: {gnn_metrics['auprc']:.4f}")
+
+    # --- ECFP4 baseline ---
+    print("\nTraining ECFP4 baseline...")
+    train_path = data_dir / "train" / "supcon_train.parquet"
     train_df = pd.read_parquet(train_path)
-    if args.max_ecfp4_samples > 0 and len(train_df) > args.max_ecfp4_samples:
-        train_df = train_df.sample(n=args.max_ecfp4_samples, random_state=42)
+    test_df = pd.read_parquet(test_path)
 
-    print(f"  Generating ECFP4 fingerprints for {len(train_df)} training samples...")
+    print("  Generating ECFP4 fingerprints...")
     train_fps = np.vstack([smiles_to_ecfp4(smi) for smi in train_df["smiles"].astype(str)])
+    test_fps = np.vstack([smiles_to_ecfp4(smi) for smi in test_df["smiles"].astype(str)])
     train_labels = train_df["label"].to_numpy()
 
-    from sklearn.linear_model import LogisticRegression
-    print(f"  Training LogisticRegression (saga solver)...")
-    clf = LogisticRegression(max_iter=1000, solver="saga", class_weight="balanced", n_jobs=-1)
+    print(f"  Training LogisticRegression on {len(train_fps)} samples...")
+    clf = LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=-1)
     clf.fit(train_fps, train_labels)
 
-    print("Computing ECFP4 fingerprints for OOD molecules...")
-    ecfp4_fps, ecfp4_failed = get_ecfp4_fingerprints(smiles_list)
-    if ecfp4_failed:
-        print(f"  WARNING: {len(ecfp4_failed)} SMILES failed fingerprinting")
-    print(f"  Fingerprints: {len(ecfp4_fps)}")
+    ecfp4_probs = clf.predict_proba(test_fps)[:, 1]
+    ecfp4_metrics = compute_metrics(test_labels, ecfp4_probs)
+    print(f"  ECFP4 AUPRC: {ecfp4_metrics['auprc']:.4f}")
 
-    ecfp4_probs = clf.predict_proba(ecfp4_fps)[:, 1]
+    # --- Comparison ---
+    print_comparison_table(gnn_metrics, ecfp4_metrics)
 
-    # --- Compute metrics ---
-    gnn_recall = float(np.mean(gnn_probs >= 0.5))
-    gnn_mean_prob = float(np.mean(gnn_probs))
-    gnn_median_prob = float(np.median(gnn_probs))
-
-    ecfp4_recall = float(np.mean(ecfp4_probs >= 0.5))
-    ecfp4_mean_prob = float(np.mean(ecfp4_probs))
-    ecfp4_median_prob = float(np.median(ecfp4_probs))
-
-    # --- Print comparison table ---
-    print("\n" + "=" * 72)
-    print("OOD Eval: Supervised GNN (direct) vs ECFP4 Probe")
-    print(f"  ({len(gnn_probs)} GNN molecules, {len(ecfp4_probs)} ECFP4 molecules, all true PKS)")
-    print("=" * 72)
-    print(f"{'Metric':<20} {'GNN':>12} {'ECFP4':>12} {'Delta':>12}")
-    print("-" * 72)
-
-    rows = [
-        ("Recall (>=0.5)", gnn_recall, ecfp4_recall),
-        ("Mean PKS prob", gnn_mean_prob, ecfp4_mean_prob),
-        ("Median PKS prob", gnn_median_prob, ecfp4_median_prob),
-    ]
-    for label, gnn_val, ecfp4_val in rows:
-        delta = gnn_val - ecfp4_val
-        sign = "+" if delta >= 0 else ""
-        print(f"{label:<20} {gnn_val:>12.4f} {ecfp4_val:>12.4f} {sign}{delta:>11.4f}")
-
-    print("=" * 72)
-
-    # --- Save JSON ---
-    output_path = Path(args.output_json)
+    # --- Save results ---
+    output_path = Path(args.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    results = {
+    comparison = {
         "checkpoint": args.checkpoint,
-        "eval_file": args.eval_smiles,
-        "n_molecules": len(smiles_list),
-        "supervised_gnn_direct": {
-            "n_evaluated": len(gnn_probs),
-            "n_failed": len(gnn_failed),
-            "recall": gnn_recall,
-            "mean_prob": gnn_mean_prob,
-            "median_prob": gnn_median_prob,
-        },
-        "ecfp4_probe": {
-            "n_evaluated": len(ecfp4_probs),
-            "n_failed": len(ecfp4_failed),
-            "recall": ecfp4_recall,
-            "mean_prob": ecfp4_mean_prob,
-            "median_prob": ecfp4_median_prob,
-        },
+        "supervised_gnn_direct": gnn_metrics,
+        "ecfp4_probe": ecfp4_metrics,
         "delta": {
-            "recall": gnn_recall - ecfp4_recall,
-            "mean_prob": gnn_mean_prob - ecfp4_mean_prob,
-            "median_prob": gnn_median_prob - ecfp4_median_prob,
+            key: gnn_metrics[key] - ecfp4_metrics[key]
+            for key in gnn_metrics
         },
     }
 
+    print(f"\nSaving comparison to {output_path}...")
     with open(output_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"\nResults saved to {output_path}")
+        json.dump(comparison, f, indent=2)
 
     print("\nDone!")
 

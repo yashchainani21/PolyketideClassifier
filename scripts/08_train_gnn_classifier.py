@@ -7,14 +7,14 @@ Supports single-node multi-GPU (primary) and multi-node multi-GPU (via SLURM).
 
 Usage:
     # Single-node multi-GPU (primary use case)
-    torchrun --nproc_per_node=4 scripts/07_train_gnn_classifier.py
+    torchrun --nproc_per_node=4 scripts/08_train_gnn_classifier.py
 
     # Single GPU (no distributed)
-    python scripts/07_train_gnn_classifier.py
+    python scripts/08_train_gnn_classifier.py
 
     # Multi-node multi-GPU (SLURM — no torchrun needed)
     srun --nodes=4 --ntasks-per-node=4 --gpus-per-node=4 \
-        python scripts/07_train_gnn_classifier.py
+        python scripts/08_train_gnn_classifier.py
 """
 
 import argparse

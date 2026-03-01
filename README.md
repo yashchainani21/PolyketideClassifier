@@ -18,7 +18,7 @@ A Graph Neural Network classifier for distinguishing Polyketide Synthase (PKS) p
 Run single-molecule inference with the pre-trained model:
 
 ```bash
-python scripts/10_run_inference.py --smiles "CC(O)CC(=O)O"
+python scripts/11_run_inference.py --smiles "CC(O)CC(=O)O"
 ```
 
 This loads the trained checkpoint from `models/supervised_gnn/best_model.pt` and outputs a PKS probability.
@@ -40,12 +40,20 @@ For each PKS molecule, we generate a **triplet**:
 
 Hard negatives force the model to learn subtle structural differences rather than obvious chemical dissimilarities. Connected-component splitting prevents SMILES leakage across splits.
 
-### OOD Evaluation Set Generation (Scripts 04-06)
+### Fingerprinting (Script 04)
 
 ```
-04_generate_extender_ood_eval_set.py         # PKS from held-out extender codes
-05_generate_mixed_extender_ood_set.py        # 2-extension PKS with 1 training + 1 OOD extender
-06_generate_methyltransferase_eval_set.py    # Alpha-methylated PKS (simulating C-methyltransferase)
+04_fingerprint_molecules.py                  # Compute ECFP4 and atom pair fingerprints from split parquets
+```
+
+Produces `data/{train,val,test}/supcon_{split}_{ecfp4,atompair}.parquet` with 2048-bit fingerprint columns.
+
+### OOD Evaluation Set Generation (Scripts 05-07)
+
+```
+05_generate_extender_ood_eval_set.py         # PKS from held-out extender codes
+06_generate_mixed_extender_ood_set.py        # 2-extension PKS with 1 training + 1 OOD extender
+07_generate_methyltransferase_eval_set.py    # Alpha-methylated PKS (simulating C-methyltransferase)
 ```
 
 ## Training
@@ -54,14 +62,14 @@ Train the supervised GNN classifier with distributed data parallel:
 
 ```bash
 # Multi-GPU
-torchrun --nproc_per_node=4 scripts/07_train_gnn_classifier.py
+torchrun --nproc_per_node=4 scripts/08_train_gnn_classifier.py
 
 # Single GPU
-python scripts/07_train_gnn_classifier.py
+python scripts/08_train_gnn_classifier.py
 
 # Multi-node (SLURM)
 srun --nodes=4 --ntasks-per-node=4 --gpus-per-node=4 \
-    python scripts/07_train_gnn_classifier.py
+    python scripts/08_train_gnn_classifier.py
 ```
 
 Key hyperparameters (configurable via CLI args):
@@ -75,10 +83,10 @@ Key hyperparameters (configurable via CLI args):
 
 ```bash
 # Test set evaluation (GNN vs ECFP4 baseline)
-python scripts/08_test_gnn_classifier.py
+python scripts/09_test_gnn_classifier.py
 
 # OOD recall evaluation
-python scripts/09_evaluate_ood_recall.py
+python scripts/10_evaluate_ood_recall.py
 ```
 
 ### Results
@@ -124,13 +132,14 @@ See `plots/supervised_gnn_architecture.png` for a visual overview.
 | `01_generate_PKS_products.py` | Generate PKS products using `bcs` library |
 | `02_generate_PKS_augmentations.py` | Generate hard-negative triplets |
 | `03_create_train_val_test_splits.py` | Connected-component train/val/test splits |
-| `04_generate_extender_ood_eval_set.py` | OOD eval set from held-out extender codes |
-| `05_generate_mixed_extender_ood_set.py` | Mixed-extender OOD eval set |
-| `06_generate_methyltransferase_eval_set.py` | Methyltransferase-modified eval set |
-| `07_train_gnn_classifier.py` | Distributed supervised GNN training |
-| `08_test_gnn_classifier.py` | Test set evaluation (GNN vs ECFP4) |
-| `09_evaluate_ood_recall.py` | OOD recall evaluation |
-| `10_run_inference.py` | Single-molecule inference |
+| `04_fingerprint_molecules.py` | Compute ECFP4 and atom pair fingerprints |
+| `05_generate_extender_ood_eval_set.py` | OOD eval set from held-out extender codes |
+| `06_generate_mixed_extender_ood_set.py` | Mixed-extender OOD eval set |
+| `07_generate_methyltransferase_eval_set.py` | Methyltransferase-modified eval set |
+| `08_train_gnn_classifier.py` | Distributed supervised GNN training |
+| `09_test_gnn_classifier.py` | Test set evaluation (GNN vs ECFP4) |
+| `10_evaluate_ood_recall.py` | OOD recall evaluation |
+| `11_run_inference.py` | Single-molecule inference |
 
 ## Dependencies
 
@@ -147,15 +156,15 @@ See `plots/supervised_gnn_architecture.png` for a visual overview.
 
 ```
 PolyketideClassifier/
-├── scripts/           # Numbered pipeline scripts (01-10)
+├── scripts/           # Numbered pipeline scripts (01-11)
 ├── data/
 │   ├── raw/           # Original PKS products
 │   ├── interim/       # Intermediate files
 │   ├── processed/     # Final datasets, augmentation pairs, eval sets
 │   ├── evals/         # Curated evaluation sets
-│   ├── train/         # Training split (supcon_train.parquet)
-│   ├── val/           # Validation split (supcon_val.parquet)
-│   └── test/          # Test split (supcon_test.parquet)
+│   ├── train/         # Training split (supcon_train.parquet, fingerprinted parquets)
+│   ├── val/           # Validation split (supcon_val.parquet, fingerprinted parquets)
+│   └── test/          # Test split (supcon_test.parquet, fingerprinted parquets)
 ├── models/
 │   └── supervised_gnn/  # Checkpoints and evaluation results
 ├── plots/             # Architecture diagrams and training curves

@@ -64,7 +64,7 @@ LACTONE_RING_SMARTS = '[OX2;R][CX3](=O)'
 
 
 # =============================================================================
-# PHASE 1: BOUND PRODUCT GENERATION (reused from script 04)
+# PHASE 1: BOUND PRODUCT GENERATION (reused from script 05)
 # =============================================================================
 
 def modify_bcs_starters_extenders(starter_codes: Optional[List[str]] = None,
@@ -122,7 +122,7 @@ def generate_all_bound_products() -> List[Tuple]:
 
 
 # =============================================================================
-# PHASE 2: THIOLYSIS RELEASE (reused from script 04, thiolysis only)
+# PHASE 2: THIOLYSIS RELEASE (reused from script 05, thiolysis only)
 # =============================================================================
 
 @dataclass
@@ -488,7 +488,7 @@ def main():
     if stereo_count:
         print(f"WARNING: {stereo_count} SMILES still contain stereochemistry markers!")
 
-    # Save as SMILES->SMILES dict (identity mapping, consistent with script 04)
+    # Save as SMILES->SMILES dict (identity mapping, consistent with script 05)
     output_dict = {smi: smi for smi in unique_methylated}
 
     output_filepath = os.path.join(OUTPUT_DIR, f"{base_filename}.pkl")
