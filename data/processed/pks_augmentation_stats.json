@@ -1,0 +1,37 @@
+{
+  "batch_size_setting": 100000,
+  "this_batch": {
+    "processed": 61986,
+    "successful": 61986,
+    "skipped": 0
+  },
+  "cumulative": {
+    "total_successful": 961986,
+    "total_skipped": 0
+  },
+  "this_batch_skip_reasons": {
+    "no_enzymatic": 0,
+    "no_synthetic": 0,
+    "all_synthetic_match_enzymatic": 0,
+    "rdkit_error": 0
+  },
+  "this_batch_similarity": {
+    "enzymatic": {
+      "mean": 0.8855643812786225,
+      "median": 0.8936170212765957,
+      "min": 0.10344827586206896,
+      "max": 1.0
+    },
+    "synthetic": {
+      "mean": 0.8430722183796947,
+      "median": 0.8541666666666666,
+      "min": 0.5348837209302325,
+      "max": 1.0
+    }
+  },
+  "this_batch_synthetic_rank_distribution": {
+    "rank_1": 58396,
+    "rank_2": 3590,
+    "rank_3_plus": 0
+  }
+}

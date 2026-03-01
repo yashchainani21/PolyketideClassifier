@@ -1,0 +1,24 @@
+{
+  "checkpoint": "models/supervised_gnn/best_model.pt",
+  "eval_file": "data/processed/eval_methylated_pks_2_ext_no_stereo_SMILES.txt",
+  "n_molecules": 9815,
+  "supervised_gnn_direct": {
+    "n_evaluated": 9815,
+    "n_failed": 0,
+    "recall": 0.9923586347427407,
+    "mean_prob": 0.9325843433767436,
+    "median_prob": 0.96401047706604
+  },
+  "ecfp4_probe": {
+    "n_evaluated": 9815,
+    "n_failed": 0,
+    "recall": 0.06928171166581763,
+    "mean_prob": 0.11684933304786682,
+    "median_prob": 0.025689508765935898
+  },
+  "delta": {
+    "recall": 0.923076923076923,
+    "mean_prob": 0.8157350103288767,
+    "median_prob": 0.9383209683001041
+  }
+}

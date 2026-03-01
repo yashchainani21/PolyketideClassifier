@@ -1,0 +1,29 @@
+=== SupCon Split Statistics ===
+
+Input: data/processed/pks_augmentation_pairs.parquet
+Total triplets: 961,986
+Total unique SMILES: 2,848,270
+
+Connected Components:
+  Total components: 929,015
+  Largest component: 820 SMILES
+  Median component size: 1 SMILES
+  Components with 1 triplet: 903,146 (97.2%)
+  Components with 2+ triplets: 25,869 (2.8%)
+
+Split Sizes (triplets):
+  Train: 769,589 (80.0%)
+  Val: 96,199 (10.0%)
+  Test: 96,198 (10.0%)
+
+Split Sizes (flat rows):
+  Train: 2,308,767 (80.0%)
+  Val: 288,597 (10.0%)
+  Test: 288,594 (10.0%)
+
+Class Ratios:
+  Train PKS ratio: 33.3%
+  Val PKS ratio: 33.3%
+  Test PKS ratio: 33.3%
+
+No SMILES leakage detected: Yes
