@@ -1,0 +1,121 @@
+{
+  "novel_1ext": {
+    "n_molecules": 678,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 678,
+      "n_failed": 0,
+      "recall": 0.16519174041297935,
+      "mean_prob": 0.20714092254638672,
+      "median_prob": 0.07449474930763245
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 678,
+      "n_failed": 0,
+      "recall": 0.5088495575221239,
+      "mean_prob": 0.4681030213832855,
+      "median_prob": 0.5248198509216309
+    }
+  },
+  "novel_2ext": {
+    "n_molecules": 13224,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 13224,
+      "n_failed": 0,
+      "recall": 0.02261040532365396,
+      "mean_prob": 0.04195535182952881,
+      "median_prob": 0.0011934336507692933
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 13224,
+      "n_failed": 0,
+      "recall": 0.18542044767090138,
+      "mean_prob": 0.1781729906797409,
+      "median_prob": 2.3137531570682768e-06
+    }
+  },
+  "mixed_ood": {
+    "n_molecules": 40385,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 40385,
+      "n_failed": 0,
+      "recall": 0.21641698650489044,
+      "mean_prob": 0.2431999295949936,
+      "median_prob": 0.08910037577152252
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 40385,
+      "n_failed": 0,
+      "recall": 0.4472205026618794,
+      "mean_prob": 0.43305498361587524,
+      "median_prob": 0.21867769956588745
+    }
+  },
+  "methylated_1ext": {
+    "n_molecules": 394,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 394,
+      "n_failed": 0,
+      "recall": 0.2639593908629442,
+      "mean_prob": 0.31953540444374084,
+      "median_prob": 0.29816925525665283
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 394,
+      "n_failed": 0,
+      "recall": 0.49238578680203043,
+      "mean_prob": 0.4887806177139282,
+      "median_prob": 0.4830741286277771
+    }
+  },
+  "methylated_2ext": {
+    "n_molecules": 9815,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 9815,
+      "n_failed": 0,
+      "recall": 0.2551197147223637,
+      "mean_prob": 0.3239685297012329,
+      "median_prob": 0.28272002935409546
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 9815,
+      "n_failed": 0,
+      "recall": 0.43107488537952116,
+      "mean_prob": 0.42723530530929565,
+      "median_prob": 0.3350266218185425
+    }
+  },
+  "methylated_3ext": {
+    "n_molecules": 236082,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 236082,
+      "n_failed": 0,
+      "recall": 0.178687913521573,
+      "mean_prob": 0.25374549627304077,
+      "median_prob": 0.17939972877502441
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 236082,
+      "n_failed": 0,
+      "recall": 0.5355893291314034,
+      "mean_prob": 0.5290582776069641,
+      "median_prob": 0.5974311828613281
+    }
+  },
+  "methylated_mixed_ood": {
+    "n_molecules": 15413,
+    "XGBoost_ecfp4": {
+      "n_evaluated": 15413,
+      "n_failed": 0,
+      "recall": 0.0681891909427107,
+      "mean_prob": 0.1165541410446167,
+      "median_prob": 0.026745285838842392
+    },
+    "XGBoost_atompair": {
+      "n_evaluated": 15413,
+      "n_failed": 0,
+      "recall": 0.11418932070330241,
+      "mean_prob": 0.12409010529518127,
+      "median_prob": 0.00032240423024632037
+    }
+  }
+}

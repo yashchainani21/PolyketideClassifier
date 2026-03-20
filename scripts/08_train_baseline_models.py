@@ -1,6 +1,6 @@
 """
-Train baseline ML classifiers on pre-computed ECFP4 fingerprints with Bayesian
-hyperparameter optimization via BayesOpt.
+Train baseline ML classifiers on pre-computed molecular fingerprints with
+Bayesian hyperparameter optimization via BayesOpt.
 
 Supports three model types:
   - Logistic Regression
@@ -12,13 +12,9 @@ trained with the best hyperparameters and evaluated on the validation set with
 bootstrapped metrics (AUPRC, Precision, Recall, F1, Accuracy).
 
 Usage:
-    python scripts/12_train_baseline_models.py --model_type Logistic
-    python scripts/12_train_baseline_models.py --model_type Random_forest
-    python scripts/12_train_baseline_models.py --model_type XGBoost
-    python scripts/12_train_baseline_models.py --model_type XGBoost --max_train_samples 500000
+    python scripts/08_train_baseline_models.py
 """
 
-import argparse
 import json
 import pickle
 import time
@@ -40,28 +36,57 @@ from sklearn.metrics import (
 from xgboost import XGBClassifier
 
 # =============================================================================
+# Configuration — edit these before running
+# =============================================================================
+
+MODEL_TYPE: str = "XGBoost"
+"""Model type to train: 'Logistic', 'Random_forest', or 'XGBoost'"""
+
+FP_TYPE: str = "ecfp4"
+"""Fingerprint type to train on: 'ecfp4' or 'atompair'"""
+
+RANDOM_STATE: int = 42
+"""Random seed for reproducibility"""
+
+N_JOBS: int = -1
+"""Number of parallel workers (-1 = all CPUs)"""
+
+INIT_POINTS: int = 5
+"""Number of random exploration points for BayesOpt"""
+
+N_ITER: int = 20
+"""Number of Bayesian optimization iterations"""
+
+N_BOOTSTRAP: int = 1000
+"""Number of bootstrap iterations for evaluation"""
+
+MAX_TRAIN_SAMPLES: int = None
+"""Subsample training data to this many rows (None = use all)"""
+
+# =============================================================================
 # Constants
 # =============================================================================
 
 N_BITS = 2048
 FP_COLS = [f"fp_{i}" for i in range(N_BITS)]
 MODEL_TYPES = ["Logistic", "Random_forest", "XGBoost"]
+FP_TYPES = ["ecfp4", "atompair"]
 
 # =============================================================================
 # Data Loading
 # =============================================================================
 
 
-def load_fingerprints(split: str, data_dir: Path, max_samples: int = None):
+def load_fingerprints(split: str, data_dir: Path, fp_type: str, max_samples: int = None):
     """
-    Load pre-computed ECFP4 fingerprints and labels from parquet.
+    Load pre-computed fingerprints and labels from parquet.
 
     Returns:
         Tuple of (fingerprint_matrix [N, 2048], labels [N,])
     """
-    parquet_path = data_dir / split / f"supcon_{split}_ecfp4.parquet"
+    parquet_path = data_dir / split / f"supcon_{split}_{fp_type}.parquet"
     if not parquet_path.exists():
-        raise FileNotFoundError(f"ECFP4 parquet not found: {parquet_path}")
+        raise FileNotFoundError(f"{fp_type} parquet not found: {parquet_path}")
 
     print(f"  Loading {parquet_path.name}...")
     df = pd.read_parquet(parquet_path)
@@ -452,73 +477,17 @@ def evaluate_model(model, X_val, y_val, n_bootstrap=1000, n_jobs=-1):
 # =============================================================================
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Train baseline ML classifiers on ECFP4 fingerprints with "
-        "Bayesian hyperparameter optimization."
-    )
-    parser.add_argument(
-        "--model_type",
-        type=str,
-        required=True,
-        choices=MODEL_TYPES,
-        help="Model type to train: Logistic, Random_forest, or XGBoost",
-    )
-    parser.add_argument(
-        "--data_dir",
-        type=str,
-        default=None,
-        help="Path to data/ directory (default: auto-detect from script location)",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default=None,
-        help="Path to output directory (default: models/baselines/)",
-    )
-    parser.add_argument(
-        "--random_state", type=int, default=42, help="Random seed (default: 42)"
-    )
-    parser.add_argument(
-        "--n_jobs",
-        type=int,
-        default=-1,
-        help="Number of parallel workers (default: -1, all CPUs)",
-    )
-    parser.add_argument(
-        "--init_points",
-        type=int,
-        default=5,
-        help="Number of random exploration points for BayesOpt (default: 5)",
-    )
-    parser.add_argument(
-        "--n_iter",
-        type=int,
-        default=20,
-        help="Number of Bayesian optimization iterations (default: 20)",
-    )
-    parser.add_argument(
-        "--n_bootstrap",
-        type=int,
-        default=1000,
-        help="Number of bootstrap iterations for evaluation (default: 1000)",
-    )
-    parser.add_argument(
-        "--max_train_samples",
-        type=int,
-        default=None,
-        help="Subsample training data to this many rows (default: use all)",
-    )
-    return parser.parse_args()
-
-
 def main():
-    args = parse_args()
+    # Validate configuration
+    if MODEL_TYPE not in MODEL_TYPES:
+        raise ValueError(f"MODEL_TYPE must be one of {MODEL_TYPES}, got '{MODEL_TYPE}'")
+    if FP_TYPE not in FP_TYPES:
+        raise ValueError(f"FP_TYPE must be one of {FP_TYPES}, got '{FP_TYPE}'")
 
     # Resolve directories
     project_root = Path(__file__).resolve().parent.parent
-    data_dir = Path(args.data_dir) if args.data_dir else project_root / "data"
-    output_dir = Path(args.output_dir) if args.output_dir else project_root / "models" / "baselines"
+    data_dir = project_root / "data"
+    output_dir = project_root / "models" / "baselines"
 
     # Create output subdirectories
     params_dir = output_dir / "params"
@@ -526,74 +495,73 @@ def main():
     for d in [output_dir, params_dir, results_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    model_type = args.model_type
     print(f"\n{'='*60}")
-    print(f"Training {model_type} baseline on ECFP4 fingerprints")
+    print(f"Training {MODEL_TYPE} baseline on {FP_TYPE} fingerprints")
     print(f"{'='*60}")
 
     # --- Load data ---
     print("\nLoading data...")
     train_fps, train_labels = load_fingerprints(
-        "train", data_dir, max_samples=args.max_train_samples
+        "train", data_dir, fp_type=FP_TYPE, max_samples=MAX_TRAIN_SAMPLES
     )
-    val_fps, val_labels = load_fingerprints("val", data_dir)
+    val_fps, val_labels = load_fingerprints("val", data_dir, fp_type=FP_TYPE)
 
     # --- Bayesian hyperparameter optimization ---
-    print(f"\nStarting Bayesian hyperparameter optimization for {model_type}")
-    print(f"  init_points={args.init_points}, n_iter={args.n_iter}")
+    print(f"\nStarting Bayesian hyperparameter optimization for {MODEL_TYPE}")
+    print(f"  init_points={INIT_POINTS}, n_iter={N_ITER}")
     start_time = time.time()
 
     opt_params = run_bayesian_hyperparameter_search(
-        model_type=model_type,
+        model_type=MODEL_TYPE,
         X_train=train_fps,
         y_train=train_labels,
         X_val=val_fps,
         y_val=val_labels,
-        random_state=args.random_state,
-        init_points=args.init_points,
-        n_iter=args.n_iter,
-        n_jobs=args.n_jobs,
+        random_state=RANDOM_STATE,
+        init_points=INIT_POINTS,
+        n_iter=N_ITER,
+        n_jobs=N_JOBS,
     )
 
     elapsed = time.time() - start_time
     print(f"Hyperparameter optimization completed in {elapsed:.1f}s")
 
     # Save optimized hyperparameters
-    params_path = params_dir / f"{model_type}_ecfp4_best_params.json"
+    params_path = params_dir / f"{MODEL_TYPE}_{FP_TYPE}_best_params.json"
     with open(params_path, "w") as f:
         json.dump(opt_params, f, indent=4)
     print(f"Saved best params to {params_path}")
 
     # --- Train final model with optimized hyperparameters ---
-    print(f"\nTraining final {model_type} model with optimized hyperparameters...")
+    print(f"\nTraining final {MODEL_TYPE} model with optimized hyperparameters...")
     start_time = time.time()
 
     model = train_model(
-        model_type=model_type,
+        model_type=MODEL_TYPE,
         opt_hyperparams=opt_params,
         X_train=train_fps,
         y_train=train_labels,
-        random_state=args.random_state,
-        n_jobs=args.n_jobs,
+        random_state=RANDOM_STATE,
+        n_jobs=N_JOBS,
     )
 
     elapsed = time.time() - start_time
     print(f"Model training completed in {elapsed:.1f}s")
 
     # Save trained model
-    model_path = output_dir / f"{model_type}_ecfp4.pkl"
+    model_path = output_dir / f"{MODEL_TYPE}_{FP_TYPE}.pkl"
     with open(model_path, "wb") as f:
         pickle.dump(model, f)
     print(f"Saved trained model to {model_path}")
 
     # --- Evaluate on validation set ---
-    print(f"\nEvaluating {model_type} on validation set...")
+    print(f"\nEvaluating {MODEL_TYPE} on validation set...")
     results = evaluate_model(
-        model, val_fps, val_labels, n_bootstrap=args.n_bootstrap, n_jobs=args.n_jobs
+        model, val_fps, val_labels, n_bootstrap=N_BOOTSTRAP, n_jobs=N_JOBS
     )
 
     # Save validation results
-    results_path = results_dir / f"{model_type}_ecfp4_val_results.json"
+    results_path = results_dir / f"{MODEL_TYPE}_{FP_TYPE}_val_results.json"
     with open(results_path, "w") as f:
         json.dump(results, f, indent=4)
     print(f"\nSaved validation results to {results_path}")

@@ -1,0 +1,24 @@
+{
+  "checkpoint": "models/supervised_gnn/best_model.pt",
+  "eval_file": "data/processed/eval_pks_products_2_ext_mods_no_stereo_butmal_hexmal_isobutmal_d-isobutmal_dcp_SMILES.txt",
+  "n_molecules": 13224,
+  "supervised_gnn_direct": {
+    "n_evaluated": 13224,
+    "n_failed": 0,
+    "recall": 0.00022686025408348456,
+    "mean_prob": 0.00020197502309729777,
+    "median_prob": 0.0
+  },
+  "ecfp4_probe": {
+    "n_evaluated": 13224,
+    "n_failed": 0,
+    "recall": 0.10042347247428918,
+    "mean_prob": 0.11944985389709473,
+    "median_prob": 0.007173016667366028
+  },
+  "delta": {
+    "recall": -0.10019661222020569,
+    "mean_prob": -0.11924787887399743,
+    "median_prob": -0.007173016667366028
+  }
+}

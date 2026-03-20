@@ -1,0 +1,14 @@
+{
+    "learning_rate": 0.5,
+    "max_leaves": 95.81334552292255,
+    "max_depth": 15.0,
+    "reg_alpha": 1.0,
+    "reg_lambda": 1.0,
+    "n_estimators": 250.5283407276504,
+    "min_child_weight": 10.0,
+    "colsample_bytree": 1.0,
+    "colsample_bylevel": 0.5,
+    "colsample_bynode": 0.5,
+    "subsample": 0.4,
+    "scale_pos_weight": 1.0
+}

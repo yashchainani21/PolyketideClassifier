@@ -1,0 +1,17 @@
+{
+    "mean AUPRC": 0.9703209581706884,
+    "AUPRC lower CI": 0.9694217124323621,
+    "AUPRC upper CI": 0.9712080003084599,
+    "mean Precision": 0.766495850989528,
+    "Precision lower CI": 0.7641525427424251,
+    "Precision upper CI": 0.7689192132273223,
+    "mean Recall": 0.99367411096167,
+    "Recall lower CI": 0.9931776084266873,
+    "Recall upper CI": 0.9942079210654727,
+    "mean F1": 0.8654239428329731,
+    "F1 lower CI": 0.863932410581934,
+    "F1 upper CI": 0.8669922774776857,
+    "mean Accuracy": 0.8970020478383351,
+    "Accuracy lower CI": 0.8958647352536583,
+    "Accuracy upper CI": 0.8980904167402988
+}

@@ -329,6 +329,81 @@ def test_supcon_split_sizes():
     assert not errors, "\n".join(errors)
 
 
+def test_supcon_split_row_counts():
+    """Verify exact row counts, class counts, and triplet counts per split."""
+    project_root = Path(__file__).resolve().parents[1]
+    data_dir = project_root / "data"
+
+    expected = {
+        "train": {"total": 2308767, "pks": 769589, "non_pks": 1539178, "triplets": 769589},
+        "val":   {"total": 288597,  "pks": 96199,  "non_pks": 192398,  "triplets": 96199},
+        "test":  {"total": 288594,  "pks": 96198,  "non_pks": 192396,  "triplets": 96198},
+    }
+
+    paths = {
+        split: _find_supcon_split_path(data_dir, split)
+        for split in ("train", "val", "test")
+    }
+    missing = [s for s, p in paths.items() if p is None]
+    if missing:
+        pytest.skip(f"Missing SupCon split files for: {', '.join(missing)}")
+
+    errors = []
+    for split, path in paths.items():
+        df = _load_supcon_df(path)
+        exp = expected[split]
+
+        total = len(df)
+        pks = int((df["label"] == 1).sum())
+        non_pks = total - pks
+        triplets = int(df["triplet_id"].nunique())
+
+        print(f"SupCon {split}: total={total}, pks={pks}, non_pks={non_pks}, triplets={triplets}")
+
+        if total != exp["total"]:
+            errors.append(f"{split}: expected {exp['total']} total rows, got {total}")
+        if pks != exp["pks"]:
+            errors.append(f"{split}: expected {exp['pks']} PKS rows, got {pks}")
+        if non_pks != exp["non_pks"]:
+            errors.append(f"{split}: expected {exp['non_pks']} non-PKS rows, got {non_pks}")
+        if triplets != exp["triplets"]:
+            errors.append(f"{split}: expected {exp['triplets']} triplets, got {triplets}")
+
+    assert not errors, "\n".join(errors)
+
+
+def test_supcon_fingerprint_row_counts():
+    """Verify ECFP4 and atom pair fingerprinted parquets match base split row counts."""
+    project_root = Path(__file__).resolve().parents[1]
+    data_dir = project_root / "data"
+
+    expected_totals = {"train": 2308767, "val": 288597, "test": 288594}
+    fp_types = ["ecfp4", "atompair"]
+
+    errors = []
+    skipped = []
+    for fp_type in fp_types:
+        for split, expected_total in expected_totals.items():
+            fp_path = data_dir / split / f"supcon_{split}_{fp_type}.parquet"
+            if not fp_path.exists():
+                skipped.append(f"{split}/{fp_type}")
+                continue
+
+            df = pd.read_parquet(fp_path)
+            actual = len(df)
+            print(f"SupCon {split} {fp_type}: {actual} rows (expected {expected_total})")
+
+            if actual != expected_total:
+                errors.append(
+                    f"{split}: {fp_type} parquet has {actual} rows, expected {expected_total}"
+                )
+
+    if skipped and not errors and len(skipped) == len(fp_types) * len(expected_totals):
+        pytest.skip(f"No fingerprinted parquets found")
+
+    assert not errors, "\n".join(errors)
+
+
 def test_supcon_triplet_integrity():
     """Verify each triplet_id has exactly 3 rows (1 PKS + 2 augmentations)."""
     project_root = Path(__file__).resolve().parents[1]
@@ -377,3 +452,61 @@ def test_supcon_triplet_integrity():
                 break  # Only report first error
 
     assert not errors, "\n".join(errors)
+
+
+# ============================================================================
+# OOD Evaluation Set Tests
+# ============================================================================
+
+# Expected SMILES counts for each OOD evaluation file.
+# Keys are (directory, filename) tuples; values are expected line counts.
+_OOD_EXPECTED_COUNTS = {
+    # Novel extender OOD sets (data/processed/)
+    ("processed", "eval_pks_products_1_ext_no_stereo_butmal_hexmal_isobutmal_d-isobutmal_dcp_SMILES.txt"): 678,
+    ("processed", "eval_pks_products_2_ext_mods_no_stereo_butmal_hexmal_isobutmal_d-isobutmal_dcp_SMILES.txt"): 13224,
+    # Mixed extender OOD set (data/processed/)
+    ("processed", "mixed_ood_pks_products_2_ext_no_stereo_1train_1ood_SMILES.txt"): 40385,
+    # Methylated OOD sets (data/processed/)
+    ("processed", "eval_methylated_pks_1_ext_no_stereo_SMILES.txt"): 394,
+    ("processed", "eval_methylated_pks_2_ext_no_stereo_SMILES.txt"): 9815,
+    ("processed", "eval_methylated_pks_3_ext_no_stereo_SMILES.txt"): 236082,
+    # Methylated mixed-extender OOD set (data/processed/)
+    ("processed", "eval_methylated_mixed_ood_pks_2_ext_no_stereo_SMILES.txt"): 15413,
+    # Methylated OOD sets (data/evals/)
+    ("evals", "eval_methylated_pks_1_ext_no_stereo_SMILES.txt"): 394,
+    ("evals", "eval_methylated_pks_2_ext_no_stereo_SMILES.txt"): 9815,
+    ("evals", "eval_methylated_pks_3_ext_no_stereo_SMILES.txt"): 236082,
+    ("evals", "eval_methylated_mixed_ood_pks_2_ext_no_stereo_SMILES.txt"): 15413,
+}
+
+
+def _count_smiles_lines(path: Path) -> int:
+    """Count non-empty lines in a SMILES text file."""
+    return sum(1 for line in open(path) if line.strip())
+
+
+@pytest.mark.parametrize(
+    "subdir,filename,expected_count",
+    [
+        (subdir, fname, count)
+        for (subdir, fname), count in _OOD_EXPECTED_COUNTS.items()
+    ],
+    ids=[
+        f"{subdir}/{fname}"
+        for (subdir, fname) in _OOD_EXPECTED_COUNTS
+    ],
+)
+def test_ood_eval_set_counts(subdir, filename, expected_count):
+    """Verify each OOD evaluation SMILES file has the expected number of molecules."""
+    project_root = Path(__file__).resolve().parents[1]
+    filepath = project_root / "data" / subdir / filename
+
+    if not filepath.exists():
+        pytest.skip(f"OOD file not found: {filepath}")
+
+    actual = _count_smiles_lines(filepath)
+    print(f"  {subdir}/{filename}: {actual} SMILES (expected {expected_count})")
+
+    assert actual == expected_count, (
+        f"{subdir}/{filename}: expected {expected_count} SMILES, got {actual}"
+    )
